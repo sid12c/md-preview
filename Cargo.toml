@@ -6,3 +6,4 @@ edition = "2024"
 [dependencies]
 clap = { version = "4.5.40", features = ["derive"] }
 pulldown-cmark = { version = "0.13.0" }
+termcolor = "1.4.1"

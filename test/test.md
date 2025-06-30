@@ -1,6 +1,6 @@
 # My Document
 
-This is a **paragraph** with *emphasis* and `inline code`.
+This is a **paragraph** with *emphasis*, `inline code`, and ~~strikethrough~~.
 
 ---
 
