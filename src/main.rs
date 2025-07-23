@@ -10,6 +10,14 @@ struct Args {
     /// Path to the Markdown file
     #[arg(value_name = "FILE")]
     file: String,
+
+    /// Turn markdown symbol rendering on
+    #[arg(short, long)]
+    symbol: bool,
+
+    /// Increment left side space to center
+    #[arg(short, long, default_value_t = 0)]
+    center: usize,
 }
 
 fn main() -> io::Result<()> {
@@ -60,6 +68,13 @@ fn main() -> io::Result<()> {
     table_border_color.set_fg(Some(Color::Ansi256(4)));
     // --- End ColorSpec Definitions ---
 
+    let mut text_level = 0;
+    let mut in_code_block = false;
+    let mut in_block_quote = false;
+    let mut first_row = false;
+    let mut in_code = false;
+    let mut no_tab = false;
+    let mut in_list = false;
     let mut in_table = false;
     let mut table_alignments: Vec<Alignment> = Vec::new();
     let mut current_row_cells: Vec<String> = Vec::new();
@@ -74,42 +89,77 @@ fn main() -> io::Result<()> {
                 match tag {
                     Tag::Paragraph => (),
                     Tag::Heading { level, .. } => {
-                        let hash_prefix = "#".repeat(level as usize);
+                        no_tab = true;
+                        text_level = level as usize - 1 + args.center;
+                        writeln!(stdout)?;
+                        let hash_prefix = "#".repeat(text_level + 1);
+                        let tab_prefix = "\t".repeat(text_level);
                         stdout.set_color(&heading_color)?;
-                        write!(stdout, "{} ", hash_prefix)?;
+                        // write!(stdout, "{}", tab_prefix)?;
+                        if args.symbol {
+                            write!(stdout, "{}{} ", tab_prefix, hash_prefix)?;
+                        } else
+                        {
+                            write!(stdout, "{}", tab_prefix)?;
+                        }
                     },
                     Tag::Strong => {
+                        no_tab = true;
                         stdout.set_color(&strong_color)?;
-                        write!(stdout, "**")?;
+                        if args.symbol {
+                            write!(stdout, "**")?;
+                        }
                     },
                     Tag::Emphasis => {
+                        no_tab = true;
                         stdout.set_color(&emphasis_color)?;
-                        write!(stdout, "*")?;
+                        if args.symbol {
+                            write!(stdout, "*")?;
+                        }
                     },
                     Tag::Strikethrough => {
+                        no_tab = true;
                         stdout.set_color(&strikethrough_color)?;
-                        write!(stdout, "~~")?;
+                        if args.symbol {
+                            write!(stdout, "~~")?;
+                        }
                     },
                     Tag::BlockQuote(_) => {
+                        in_block_quote = true;
+                        first_row = true;
+                        // no_tab = true;
+                        let tab_prefix = "\t".repeat(text_level);
                         stdout.set_color(&blockquote_color)?;
-                        write!(stdout, "\n> ")?;
+                        write!(stdout, "\n{}> ", tab_prefix)?;
                     },
                     Tag::CodeBlock(kind) => {
+                        in_code_block = true;
                         let lang_str = match kind {
                             CodeBlockKind::Fenced(lang) => lang.to_string(),
                             CodeBlockKind::Indented => String::new(),
                         };
-                        writeln!(stdout)?; // Newline before code block
-                        stdout.set_color(&fence_color)?; // Set fence color
-                        write!(stdout, "```")?;
-                        stdout.set_color(&code_color)?; // Set code color for language
-                        write!(stdout, "{}", lang_str)?;
-                        //stdout.reset()?; // Reset after language string if desired, or let it be part of the code block.
-                                        // For simplicity, let's reset here for the next line.
+                        if args.symbol {
+                            // writeln!(stdout)?; // Newline before code block
+                        
+                            let tab_prefix = "\t".repeat(text_level);
+                            write!(stdout, "{}", tab_prefix)?;
+                            stdout.set_color(&fence_color)?; // Set fence color
+                        
+                            write!(stdout, "```")?;
+                            stdout.set_color(&code_color)?; // Set code color for language
+                            write!(stdout, "{}", lang_str)?;
                         writeln!(stdout)?; // Newline after language info
+                        } else {
+                            stdout.set_color(&code_color)?; // Set code color for language
+                        }
                     },
                     Tag::List(_) => {},
-                    Tag::Item => write!(stdout, "- ")?,
+                    Tag::Item => {
+                        in_list = true;
+                        let tab_prefix = "\t".repeat(text_level);
+                        write!(stdout, "{}", tab_prefix)?;
+                        write!(stdout, "- ")?;
+                    },
                     Tag::Link { .. } => write!(stdout, "[")?,
                     Tag::Image { .. } => write!(stdout, "![")?,
                     Tag::Table(alignments) => {
@@ -121,20 +171,11 @@ fn main() -> io::Result<()> {
                     },
                     Tag::TableHead => {
                         is_header_row = true;
-                        // stdout.set_color(&table_header_color)?;
-                        // write!(stdout, "|")?;
-                        // No print here, handled by TableRow/TableCell
                     },
                     Tag::TableRow => {
                         current_row_cells.clear(); // Start a new row, clear previous cells
-                        
                     },
                     Tag::TableCell => {
-                        stdout.set_color(&table_border_color)?;
-                        write!(stdout, "|")?;
-                        stdout.reset()?;
-                        // Start accumulating text for the cell
-                        // No explicit print for cell start, text will follow
                     },
                     _ => {}
                 }
@@ -145,27 +186,46 @@ fn main() -> io::Result<()> {
                     TagEnd::Heading { .. } => {
                         writeln!(stdout)?; // Newline for the end of the heading
                         stdout.reset()?; // Reset color after the heading
+                        no_tab = false;
                     },
                     TagEnd::Strong => {
-                        write!(stdout, "**")?;
+                        if args.symbol {
+                            write!(stdout, "**")?;
+                        }
                         stdout.reset()?;
                     },
                     TagEnd::Emphasis => {
-                        write!(stdout, "*")?;
+                        if args.symbol {
+                            write!(stdout, "*")?;
+                        }
                         stdout.reset()?;
                     },
                     TagEnd::Strikethrough => {
-                        write!(stdout, "~~")?;
+                        if args.symbol {
+                            write!(stdout, "~~")?;
+                        }
                         stdout.reset()?;
                     },
-                    TagEnd::BlockQuote(_) => writeln!(stdout)?,
-                    TagEnd::CodeBlock => {
-                        stdout.set_color(&fence_color)?;
-                        write!(stdout, "```")?;
+                    TagEnd::BlockQuote(_) => {
                         writeln!(stdout)?;
+                        in_block_quote = false;
+                        first_row = false;
+                    },  
+                    TagEnd::CodeBlock => {
+                        let tab_prefix = "\t".repeat(text_level);
+                        write!(stdout, "{}", tab_prefix)?;
+                        stdout.set_color(&fence_color)?;
+                        if args.symbol {
+                            write!(stdout, "```")?;
+                        }
+                        writeln!(stdout)?;
+                        in_code_block = false;
                     },
                     TagEnd::List(_) => writeln!(stdout)?,
-                    TagEnd::Item => writeln!(stdout)?,
+                    TagEnd::Item => {
+                        writeln!(stdout)?;
+                        in_list = false;
+                    },
                     TagEnd::Link => write!(stdout, ")")?,
                     TagEnd::Image => write!(stdout, ")")?,
                     TagEnd::TableCell => {
@@ -178,27 +238,33 @@ fn main() -> io::Result<()> {
                     TagEnd::TableRow => {
                         // A row has ended. Now we can format and print it.
                         // First, calculate column widths if this is the header row
-                        if is_header_row {
-                            for (i, cell_content) in current_row_cells.iter().enumerate() {
+                        for (i, cell_content) in current_row_cells.iter().enumerate() {
                                 if i >= column_widths.len() {
                                     column_widths.push(0);
                                 }
                                 column_widths[i] = column_widths[i].max(cell_content.len());
                             }
-                        } else {
-                            // For body rows, ensure column_widths is populated if it's the first data row
-                            // or if header was skipped. Better to calculate overall width after collecting all data
-                            // or just ensure column_widths is based on header + max content.
-                            // For simplicity, let's assume header defines widths for now.
-                            for (i, cell_content) in current_row_cells.iter().enumerate() {
-                                if i >= column_widths.len() {
-                                     // This can happen if the table has no header, or varying cell counts.
-                                     // For robustness, expand `column_widths` if necessary.
-                                     column_widths.push(0);
-                                }
-                                column_widths[i] = column_widths[i].max(cell_content.len());
-                            }
-                        }
+                        // if is_header_row {
+                        //     for (i, cell_content) in current_row_cells.iter().enumerate() {
+                        //         if i >= column_widths.len() {
+                        //             column_widths.push(0);
+                        //         }
+                        //         column_widths[i] = column_widths[i].max(cell_content.len());
+                        //     }
+                        // } else {
+                        //     // For body rows, ensure column_widths is populated if it's the first data row
+                        //     // or if header was skipped. Better to calculate overall width after collecting all data
+                        //     // or just ensure column_widths is based on header + max content.
+                        //     // For simplicity, let's assume header defines widths for now.
+                        //     for (i, cell_content) in current_row_cells.iter().enumerate() {
+                        //         if i >= column_widths.len() {
+                        //              // This can happen if the table has no header, or varying cell counts.
+                        //              // For robustness, expand `column_widths` if necessary.
+                        //              column_widths.push(0);
+                        //         }
+                        //         column_widths[i] = column_widths[i].max(cell_content.len());
+                        //     }
+                        // }
 
                         // Print the row
                         stdout.set_color(&table_border_color)?;
@@ -267,8 +333,9 @@ fn main() -> io::Result<()> {
                     // and that `TableCell` start/end delineate cells.
                     // This is a simplification; a robust solution might involve a temporary
                     // buffer for cell content.
-                    if current_row_cells.is_empty(){ // Need to re-think this.
+                    if current_row_cells.is_empty() { // Need to re-think this.
                         // If it's the first text in a new cell, or after a cell end.
+                        write!(stdout, "{}", text)?;
                         current_row_cells.push(text.to_string());
                     } else {
                         // Append to the last cell
@@ -276,6 +343,20 @@ fn main() -> io::Result<()> {
                         current_row_cells[last_idx].push_str(&text);
                     }
                 } else {
+                    if !in_list && !no_tab && !in_block_quote && !in_code{
+                        let tab_prefix = "\t".repeat(text_level);
+                        write!(stdout, "{}", tab_prefix)?;
+                    }
+                    if in_block_quote && first_row && !in_code {
+                        first_row = false;
+                    } else if in_block_quote && !no_tab && !in_code {
+                        let tab_prefix = "\t".repeat(text_level);
+                        write!(stdout, "{}  ", tab_prefix)?;
+                    } 
+                    if in_code {
+                        in_code = false;
+                        write!(stdout, "~", )?;
+                    }
                     write!(stdout, "{}", text)?;
                 }
             },
@@ -291,8 +372,18 @@ fn main() -> io::Result<()> {
                         current_row_cells[last_idx].push_str(&format!("`{}`", code));
                     }
                 } else {
+                    if in_code_block {
+                        let tab_prefix = "\t".repeat(text_level);
+                        write!(stdout, "{}", tab_prefix)?;
+                    } else {
+                        in_code = true;
+                    }
                     stdout.set_color(&code_color)?;
-                    write!(stdout, "`{}`", code)?;
+                    if args.symbol {
+                        write!(stdout, "`{}`", code)?;
+                    } else {
+                        write!(stdout, "{}", code)?;
+                    }
                     stdout.reset()?;
                 }
             },
@@ -303,7 +394,9 @@ fn main() -> io::Result<()> {
                         last_cell.push(' ');
                     }
                 } else {
-                    write!(stdout, " ")?;
+                    writeln!(stdout)?;
+                    in_list= false;
+                    // write!(stdout, " ")?;
                 }
             },
             Event::HardBreak => {
@@ -319,7 +412,9 @@ fn main() -> io::Result<()> {
             Event::Rule => {
                 writeln!(stdout)?;
                 stdout.set_color(&rule_color)?;
-                write!(stdout, "---")?;
+                let rule = "---".repeat(text_level + 1);
+                let tab_prefix = "\t".repeat(text_level);
+                write!(stdout, "{}{}", tab_prefix, rule)?;
                 writeln!(stdout)?;
                 stdout.reset()?;
             },

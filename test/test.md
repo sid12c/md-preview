@@ -13,6 +13,7 @@ Here's a list:
 > This is a blockquote.
 
 ```rust
-fn main() {
-    println!("Hello, Markdown!");
-}
+    fn main() {
+        println!("Hello, Markdown!");
+    }
+```
